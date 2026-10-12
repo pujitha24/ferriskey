@@ -2267,6 +2267,8 @@ dependencies = [
  "ferriskey-authz",
  "ferriskey-domain",
  "miette",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 
