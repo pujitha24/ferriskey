@@ -86,6 +86,13 @@ pub struct Args {
         long_help = "Allow client metadata documents to be fetched over http from loopback or private addresses. For tests only — never enable this in production. Link-local addresses stay refused regardless."
     )]
     pub client_metadata_allow_private_endpoints: bool,
+    #[arg(
+        long,
+        env = "AUTHZ_ENABLED",
+        default_value_t = false,
+        long_help = "Expose the AuthZEN evaluation endpoint and its metadata document. A realm still has to enable tenant authorization for itself."
+    )]
+    pub authz_enabled: bool,
     #[command(flatten)]
     pub observability: ObservabilityArgs,
     #[command(subcommand)]
@@ -102,6 +109,7 @@ impl Default for Args {
             server: ServerArgs::default(),
             webhook_allow_private_endpoints: false,
             client_metadata_allow_private_endpoints: false,
+            authz_enabled: false,
             webapp_url: "http://localhost:5555".to_string(),
             observability: ObservabilityArgs::default(),
             command: None,
