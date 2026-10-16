@@ -4695,6 +4695,9 @@ where
                 .await
         };
 
+        let realm_id = scope.id();
+        let is_password_grant = grant_type == GrantType::Password;
+
         let params = GrantTypeParams {
             realm: scope,
             base_url: input.base_url,
@@ -4719,7 +4722,17 @@ where
 
         let duration = (Utc::now() - exchange_start).num_milliseconds();
         match &result {
-            Ok(_) => {
+            Ok(token) => {
+                // The password grant is the only standalone flow with a user;
+                // `sub` of the token it just issued names them.
+                let flow_user_id = match (&standalone_flow_id, is_password_grant) {
+                    (Some(_), true) => self
+                        .verify_token(token.access_token().to_string(), realm_id)
+                        .await
+                        .ok()
+                        .map(|claims| claims.sub),
+                    _ => None,
+                };
                 self.flow_recorder.record_step(
                     standalone_flow_id.clone(),
                     FlowStepName::TokenExchange,
@@ -4729,7 +4742,7 @@ where
                     standalone_flow_id.clone(),
                     FlowStatus::Success,
                     duration,
-                    None,
+                    flow_user_id,
                 );
             }
             Err(error) => {

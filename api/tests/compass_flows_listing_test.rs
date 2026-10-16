@@ -1076,4 +1076,43 @@ mod tests {
             }
         });
     }
+
+    #[test]
+    #[ignore = "requires PostgreSQL — run with: cargo test -p ferriskey-api --test compass_flows_listing_test -- --ignored"]
+    fn a_successful_password_grant_records_its_user() {
+        let server = make_server();
+        rt().block_on(async {
+            // A realm of its own: the fixture realms have tracing switched off.
+            let realm = format!("traced-{}", &Uuid::new_v4().simple().to_string()[..8]);
+            create_realm(&server, &ctx().admin_token, &realm).await;
+            let realm_id = realm_id_of(&ctx().pool, &realm).await;
+
+            let user_id = create_user(&server, &ctx().admin_token, &realm, "carol").await;
+            set_password(&server, &ctx().admin_token, &realm, &user_id, PASSWORD).await;
+            direct_grant(&server, &realm, "carol", PASSWORD).await;
+
+            // Flows are written asynchronously; wait for the completed one.
+            let mut recorded = None;
+            for _ in 0..50 {
+                recorded = sqlx::query_scalar::<_, Option<Uuid>>(
+                    "SELECT user_id FROM compass_flows \
+                     WHERE realm_id = $1::uuid AND grant_type = 'password' AND status = 'success'",
+                )
+                .bind(realm_id.to_string())
+                .fetch_optional(&ctx().pool)
+                .await
+                .expect("read the recorded flow");
+                if recorded.is_some() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+
+            assert_eq!(
+                recorded,
+                Some(Some(uuid_of(&user_id))),
+                "the successful password flow must name the user who logged in"
+            );
+        });
+    }
 }
