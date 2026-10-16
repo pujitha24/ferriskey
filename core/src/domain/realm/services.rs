@@ -50,13 +50,23 @@ use serde_json::json;
 use tracing::instrument;
 
 fn accessible_realm_ids(realms: &[Realm], user_roles: &[Role]) -> Vec<RealmId> {
+    // Mirror clients only count when they live in master; a same-named client
+    // created inside a tenant realm must not grant visibility of another realm.
+    let Some(master_id) = realms.iter().find(|r| r.name == "master").map(|r| r.id) else {
+        return Vec::new();
+    };
+
     realms
         .iter()
         .filter(|realm| {
             let client_name = format!("{}-realm", realm.name);
             let permissions = user_roles
                 .iter()
-                .filter(|role| role.client.as_ref().is_some_and(|c| c.name == client_name))
+                .filter(|role| {
+                    role.client
+                        .as_ref()
+                        .is_some_and(|c| c.realm_id == master_id && c.name == client_name)
+                })
                 .flat_map(|role| role.permissions.iter())
                 .filter_map(|perm_str| Permissions::from_name(perm_str))
                 .collect::<HashSet<Permissions>>();
@@ -1934,6 +1944,8 @@ mod tests {
             realm_access_role(&master, Some("delta-realm"), Permissions::ManageRealm),
             realm_access_role(&master, None, Permissions::ManageRealm),
             realm_access_role(&master, Some("epsilon-client"), Permissions::ManageRealm),
+            // Same-named client living in a tenant realm, not in master.
+            realm_access_role(&alpha, Some("gamma-realm"), Permissions::ManageRealm),
         ];
         let expected = vec![alpha.id, beta.id, delta.id];
         let listed = alpha.clone();
