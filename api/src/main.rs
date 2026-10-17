@@ -13,6 +13,7 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum_server::tls_rustls::RustlsConfig;
 use clap::Parser;
@@ -221,13 +222,62 @@ async fn main() -> Result<(), anyhow::Error> {
         let tls_cfg = RustlsConfig::from_pem_file(tls.cert.clone(), tls.key.clone()).await?;
         info!("listening on {addr}");
         axum_server::bind_rustls(addr, tls_cfg)
+            .handle(shutdown_handle())
             .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await?;
     } else {
         info!("listening on {addr}");
         axum_server::bind(addr)
+            .handle(shutdown_handle())
             .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await?;
     }
     Ok(())
+}
+
+/// How long in-flight requests get to finish after a shutdown signal.
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(8);
+
+/// Builds a server handle that drains connections once SIGTERM or Ctrl+C arrives.
+fn shutdown_handle() -> axum_server::Handle<SocketAddr> {
+    let handle = axum_server::Handle::<SocketAddr>::new();
+    let server_handle = handle.clone();
+
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        info!("shutdown signal received, draining connections");
+        server_handle.graceful_shutdown(Some(SHUTDOWN_GRACE_PERIOD));
+    });
+
+    handle
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            error!("failed to listen for ctrl+c: {err}");
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sigterm) => {
+                sigterm.recv().await;
+            }
+            Err(err) => {
+                error!("failed to listen for SIGTERM: {err}");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
