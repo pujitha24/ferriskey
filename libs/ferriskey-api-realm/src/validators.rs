@@ -7,7 +7,11 @@ use validator::Validate;
 #[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct CreateRealmValidator {
     #[validate(
-        length(min = 1, message = "name is required"),
+        length(
+            min = 1,
+            max = 255,
+            message = "name must be between 1 and 255 characters"
+        ),
         custom(function = "validate_realm_slug")
     )]
     #[serde(default)]
@@ -20,7 +24,11 @@ pub struct CreateRealmValidator {
 #[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct UpdateRealmValidator {
     #[validate(
-        length(min = 1, message = "name is required"),
+        length(
+            min = 1,
+            max = 255,
+            message = "name must be between 1 and 255 characters"
+        ),
         custom(function = "validate_realm_slug")
     )]
     pub name: String,
@@ -360,5 +368,34 @@ mod mcp_settings_validator_tests {
             serde_json::from_value(json!({})).expect("deserializes");
         assert!(empty.validate().is_ok());
         assert!(empty.allowed_resources.is_none());
+    }
+}
+
+#[cfg(test)]
+mod realm_name_length_tests {
+    use super::{CreateRealmValidator, UpdateRealmValidator};
+    use validator::Validate;
+
+    #[test]
+    fn create_realm_name_over_255_chars_is_rejected() {
+        let v = CreateRealmValidator {
+            name: "a".repeat(256),
+            display_name: None,
+        };
+        assert!(v.validate().is_err());
+        let ok = CreateRealmValidator {
+            name: "a".repeat(255),
+            display_name: None,
+        };
+        assert!(ok.validate().is_ok());
+    }
+
+    #[test]
+    fn update_realm_name_over_255_chars_is_rejected() {
+        let v = UpdateRealmValidator {
+            name: "a".repeat(256),
+            display_name: None,
+        };
+        assert!(v.validate().is_err());
     }
 }
